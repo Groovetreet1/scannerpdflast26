@@ -18,6 +18,7 @@
       }
     },
     "android": {
+      "package": "com.scannerpdf.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
