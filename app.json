@@ -37,11 +37,7 @@
       "expo-camera",
       "expo-sharing"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "f6ac4ef7-c137-4e6a-82a5-7f1ae879d64d"
-      }
-    },
-    "owner": "hello-world19922"
+
+    "owner": "gomobile-test"
   }
 }
