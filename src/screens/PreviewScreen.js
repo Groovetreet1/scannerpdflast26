@@ -67,7 +67,7 @@ export default function PreviewScreen({ route, navigation }) {
 
       const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(data),
       });
 
@@ -82,7 +82,7 @@ export default function PreviewScreen({ route, navigation }) {
         Alert.alert('Erreur', result.message || 'Réponse inconnue');
       }
     } catch (e) {
-      Alert.alert('Erreur', 'Impossible de contacter le serveur. Vérifie ton URL.');
+      Alert.alert('Erreur', "Impossible de contacter le serveur.\n1. Vérifie ton URL dans src/config.js\n2. Déploie ton Google Apps Script (Voir google-apps-script.gs)\n3. Assure-toi que l'accès est 'Tout le monde'");
     } finally {
       setSaving(false);
     }

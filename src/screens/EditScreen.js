@@ -103,7 +103,7 @@ export default function EditScreen({ route, navigation }) {
     setProcessing(true);
     try {
       const r = await ImageManipulator.manipulateAsync(imageUri,
-        [{ contrast: 1.15 }, { brightness: 0.05 }],
+        [{ contrast: 1.35 }, { brightness: 0.08 }, { saturate: 1.25 }],
         { format: ImageManipulator.SaveFormat.JPEG, compress: 0.95 });
       setImageUri(r.uri);
     } finally { setProcessing(false); }
@@ -149,10 +149,10 @@ export default function EditScreen({ route, navigation }) {
         <View style={[styles.cropBorder, { left, top, width: w, height: h }]}>
           <View style={styles.grid}>
             {[1, 2].map(i => (
-              <View key={`v${i}`} style={[styles.gridLine, { left: w * i / 3, height: '100%' }]} />
+              <View key={`v${i}`} style={[styles.gridLineV, { left: w * i / 3 }]} />
             ))}
             {[1, 2].map(i => (
-              <View key={`h${i}`} style={[styles.gridLine, { top: h * i / 3, width: '100%' }]} />
+              <View key={`h${i}`} style={[styles.gridLineH, { top: h * i / 3 }]} />
             ))}
           </View>
         </View>
@@ -217,8 +217,11 @@ const styles = StyleSheet.create({
     position: 'absolute', borderWidth: 1.5, borderColor: '#fff',
   },
   grid: { flex: 1, position: 'relative' },
-  gridLine: {
-    position: 'absolute', backgroundColor: 'rgba(255,255,255,0.3)', width: 1,
+  gridLineV: {
+    position: 'absolute', backgroundColor: 'rgba(255,255,255,0.35)', width: 1, height: '100%',
+  },
+  gridLineH: {
+    position: 'absolute', backgroundColor: 'rgba(255,255,255,0.35)', height: 1, width: '100%',
   },
   moveArea: { position: 'absolute', backgroundColor: 'transparent', zIndex: 5 },
   handle: {

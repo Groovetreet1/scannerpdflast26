@@ -1,14 +1,13 @@
 /**
- * Google Apps Script - Web App Scanner PDF
+ * Google Apps Script - Scanner PDF
  *
  * Déploiement :
- * 1. Crée un nouveau script sur https://script.google.com
+ * 1. Va sur https://script.google.com → Nouveau projet
  * 2. Copie ce fichier dans l'éditeur
- * 3. Va dans "Déployer" > "Nouveau déploiement"
- * 4. Choisis "Application Web" (Web App)
- * 5. Exécute en tant que : "Moi"
- * 6. Accès : "Tout le monde" (anonymous)
- * 7. Copie l'URL et mets-la dans src/config.js
+ * 3. Déployer → Nouveau déploiement → Application Web
+ * 4. Exécuter en tant que : Moi
+ * 5. Accès : Tout le monde (Anonymous)
+ * 6. Copie l'URL et mets-la dans src/config.js
  */
 
 const SHEET_ID = "1CQmObzftvfrwNhO2IMhcuPn6DfddUffnSGoUai9InqU";
@@ -26,17 +25,15 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
     const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
 
-    // Ajoute les en-têtes si la feuille est vide
     if (sheet.getLastRow() === 0) {
       sheet.appendRow([
-        "Date", "Type", "Désignation", "Destination",
-        "Montant", "Document scanné", "Accusé", "Lien PDF", "Horodatage"
+        "Date", "Type", "Designation", "Destination",
+        "Montant", "Document scanné", "Accuse", "Lien PDF", "Horodatage"
       ]);
     }
 
     var pdfUrl = "";
 
-    // Upload du PDF vers Google Drive si présent
     if (data.pdfBase64 && data.pdfName) {
       try {
         var blob = Utilities.base64Decode(data.pdfBase64);

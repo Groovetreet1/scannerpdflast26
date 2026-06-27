@@ -5,6 +5,16 @@ import * as Sharing from 'expo-sharing';
 export async function generatePDF(formData, imageUri) {
   const dateStr = formData.date || new Date().toLocaleDateString('fr-FR');
 
+  let imgSrc = '';
+  try {
+    const base64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    imgSrc = `data:image/jpeg;base64,${base64}`;
+  } catch {
+    imgSrc = imageUri;
+  }
+
   const html = `
     <html>
     <head>
@@ -32,7 +42,7 @@ export async function generatePDF(formData, imageUri) {
         <tr><th>Accusé</th><td>${formData.accuse || '-'}</td></tr>
       </table>
       <div class="photo-container">
-        <img src="${imageUri}" />
+        <img src="${imgSrc}" />
       </div>
       <div class="footer">
         Généré le ${new Date().toLocaleString('fr-FR')}
@@ -40,7 +50,6 @@ export async function generatePDF(formData, imageUri) {
     </body>
     </html>
   `;
-
   const { uri } = await Print.printToFileAsync({ html });
   return uri;
 }
