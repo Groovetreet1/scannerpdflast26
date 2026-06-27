@@ -5,14 +5,19 @@ import * as Sharing from 'expo-sharing';
 export async function generatePDF(formData, imageUri) {
   const dateStr = formData.date || new Date().toLocaleDateString('fr-FR');
 
-  let imgSrc = '';
+  let imgTag = '';
   try {
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    imgSrc = `data:image/jpeg;base64,${base64}`;
-  } catch {
-    imgSrc = imageUri;
+    const contentUri = await FileSystem.getContentUriAsync(imageUri);
+    imgTag = `<img src="${contentUri}" />`;
+  } catch (e1) {
+    try {
+      const b64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      imgTag = `<img src="data:image/jpeg;base64,${b64}" />`;
+    } catch (e2) {
+      imgTag = '<p style="color:#999">(Image non disponible)</p>';
+    }
   }
 
   const html = `
@@ -42,7 +47,7 @@ export async function generatePDF(formData, imageUri) {
         <tr><th>Accusé</th><td>${formData.accuse || '-'}</td></tr>
       </table>
       <div class="photo-container">
-        <img src="${imgSrc}" />
+        ${imgTag}
       </div>
       <div class="footer">
         Généré le ${new Date().toLocaleString('fr-FR')}

@@ -22,7 +22,7 @@ export default function PreviewScreen({ route, navigation }) {
       setPdfUri(dest);
       Alert.alert('Succès', `PDF généré : ${fileName}`);
     } catch (e) {
-      Alert.alert('Erreur', "Impossible de générer le PDF");
+      Alert.alert('Erreur', "PDF: " + (e.message || e.toString()));
     } finally {
       setSaving(false);
     }
@@ -82,7 +82,7 @@ export default function PreviewScreen({ route, navigation }) {
         Alert.alert('Erreur', result.message || 'Réponse inconnue');
       }
     } catch (e) {
-      Alert.alert('Erreur', "Impossible de contacter le serveur.\n1. Vérifie ton URL dans src/config.js\n2. Déploie ton Google Apps Script (Voir google-apps-script.gs)\n3. Assure-toi que l'accès est 'Tout le monde'");
+      Alert.alert('Erreur', "Upload: " + (e.message || e.toString()) + "\n\nVérifie ton URL dans config.js");
     } finally {
       setSaving(false);
     }
