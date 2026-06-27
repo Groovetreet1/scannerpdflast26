@@ -1,9 +1,11 @@
 import { useState, useRef, useMemo } from 'react';
 import {
   StyleSheet, Text, View, Image, TouchableOpacity, Dimensions,
-  PanResponder, ActivityIndicator,
+  PanResponder, ActivityIndicator, Alert,
 } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import { usePerspectiveProcessor } from '../utils/perspectiveProcessor';
 
 const SCREEN = Dimensions.get('window');
 const IMAGE_MARGIN = 10;
@@ -15,12 +17,22 @@ export default function EditScreen({ route, navigation }) {
   const [imageUri, setImageUri] = useState(photoUri);
   const [imageSize, setImageSize] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [mode, setMode] = useState('crop');
   const [crop, setCrop] = useState({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
   const cropRef = useRef(crop);
   cropRef.current = crop;
   const startStateRef = useRef(null);
-
   const layoutRef = useRef({ x: 0, y: 0, w: IMAGE_WIDTH, h: IMAGE_WIDTH * 0.75 });
+
+  const [corners, setCorners] = useState([
+    { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 },
+    { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 },
+  ]);
+  const cornersRef = useRef(corners);
+  cornersRef.current = corners;
+  const cornerStartRef = useRef(null);
+  const dragCornerRef = useRef(-1);
+  const { ready: perspReady, correctPerspective, processorComponent } = usePerspectiveProcessor();
 
   const handleImageLoad = (evt) => {
     const { width, height } = evt.nativeEvent.source;
@@ -47,38 +59,54 @@ export default function EditScreen({ route, navigation }) {
     h: Math.max(0.08, Math.min(1, h)),
   });
 
+  const clampCorner = (idx, x, y) => ({
+    x: Math.max(0, Math.min(1, x)),
+    y: Math.max(0, Math.min(1, y)),
+  });
+
   const createPanResponder = (handle) => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
-      startStateRef.current = { ...cropRef.current };
+      if (mode === 'crop') {
+        startStateRef.current = { ...cropRef.current };
+      } else {
+        cornerStartRef.current = cornersRef.current.map(c => ({ ...c }));
+        dragCornerRef.current = handle;
+      }
     },
     onPanResponderRelease: () => {
       startStateRef.current = null;
+      cornerStartRef.current = null;
+      dragCornerRef.current = -1;
     },
     onPanResponderMove: (_, g) => {
       const layout = layoutRef.current;
       const dx = g.dx / layout.w;
       const dy = g.dy / layout.h;
-      const s = startStateRef.current;
-      if (!s) return;
 
-      let c;
-      switch (handle) {
-        case 'tl':
-          c = { x: s.x + dx, y: s.y + dy, w: s.w - dx, h: s.h - dy }; break;
-        case 'tr':
-          c = { x: s.x, y: s.y + dy, w: s.w + dx, h: s.h - dy }; break;
-        case 'bl':
-          c = { x: s.x + dx, y: s.y, w: s.w - dx, h: s.h + dy }; break;
-        case 'br':
-          c = { x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }; break;
-        case 'move':
-          c = { x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }; break;
-        default:
-          c = s;
+      if (mode === 'crop') {
+        const s = startStateRef.current;
+        if (!s) return;
+        let c;
+        switch (handle) {
+          case 'tl': c = { x: s.x + dx, y: s.y + dy, w: s.w - dx, h: s.h - dy }; break;
+          case 'tr': c = { x: s.x, y: s.y + dy, w: s.w + dx, h: s.h - dy }; break;
+          case 'bl': c = { x: s.x + dx, y: s.y, w: s.w - dx, h: s.h + dy }; break;
+          case 'br': c = { x: s.x, y: s.y, w: s.w + dx, h: s.h + dy }; break;
+          case 'move': c = { x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }; break;
+          default: c = s;
+        }
+        setCrop(clampCrop(c.x, c.y, c.w, c.h));
+      } else if (mode === 'perspective' && handle >= 0 && handle < 4) {
+        const s = cornerStartRef.current;
+        if (!s) return;
+        const newCorners = s.map((c, i) => {
+          if (i === handle) return clampCorner(i, c.x + dx, c.y + dy);
+          return c;
+        });
+        setCorners(newCorners);
       }
-      setCrop(clampCrop(c.x, c.y, c.w, c.h));
     },
   });
 
@@ -88,7 +116,11 @@ export default function EditScreen({ route, navigation }) {
     bl: createPanResponder('bl'),
     br: createPanResponder('br'),
     move: createPanResponder('move'),
-  }), []);
+    c0: createPanResponder(0),
+    c1: createPanResponder(1),
+    c2: createPanResponder(2),
+    c3: createPanResponder(3),
+  }), [mode]);
 
   const handleRotate = async () => {
     setProcessing(true);
@@ -127,11 +159,38 @@ export default function EditScreen({ route, navigation }) {
     } finally { setProcessing(false); }
   };
 
+  const handleCorrectPerspective = async () => {
+    if (!imageSize) return;
+    setProcessing(true);
+    try {
+      const l = layoutRef.current;
+      const c = cornersRef.current;
+      const imgPts = c.map(p => ({
+        x: p.x * imageSize.width,
+        y: p.y * imageSize.height,
+      }));
+      const outputSize = Math.max(imageSize.width, imageSize.height);
+      const dataUri = await correctPerspective(imageUri, imgPts, outputSize);
+      const tempPath = FileSystem.cacheDirectory + 'persp_' + Date.now() + '.jpg';
+      const base64 = dataUri.split(',')[1];
+      await FileSystem.writeAsStringAsync(tempPath, base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      setImageUri(tempPath);
+      setCorners([
+        { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 },
+        { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 },
+      ]);
+    } catch (e) {
+      Alert.alert('Erreur', 'Perspective correction failed: ' + e.message);
+    } finally { setProcessing(false); }
+  };
+
   const handleConfirm = () => {
     navigation.replace('Form', { photoUri: imageUri });
   };
 
-  const renderOverlay = () => {
+  const renderCropOverlay = () => {
     const l = layoutRef.current;
     const c = crop;
     const left = l.x + c.x * l.w;
@@ -166,12 +225,52 @@ export default function EditScreen({ route, navigation }) {
     );
   };
 
+  const renderPerspectiveOverlay = () => {
+    const l = layoutRef.current;
+    const c = corners;
+    const pts = c.map(p => ({
+      x: l.x + p.x * l.w,
+      y: l.y + p.y * l.h,
+    }));
+
+    return (
+      <>
+        <View style={[styles.perspMask, { top: 0, left: 0, right: 0, bottom: 0 }]}>
+          <View style={[styles.perspQuad, {
+            top: Math.min(pts[0].y, pts[1].y, pts[2].y, pts[3].y),
+            left: Math.min(pts[0].x, pts[1].x, pts[2].x, pts[3].x),
+            width: Math.max(pts[0].x, pts[1].x, pts[2].x, pts[3].x) - Math.min(pts[0].x, pts[1].x, pts[2].x, pts[3].x),
+            height: Math.max(pts[0].y, pts[1].y, pts[2].y, pts[3].y) - Math.min(pts[0].y, pts[1].y, pts[2].y, pts[3].y),
+          }]} />
+        </View>
+        <View style={[styles.perspLine, { left: pts[0].x, top: pts[0].y, width: Math.sqrt(Math.pow(pts[1].x-pts[0].x,2)+Math.pow(pts[1].y-pts[0].y,2)), transform: [{ rotate: Math.atan2(pts[1].y-pts[0].y, pts[1].x-pts[0].x) + 'rad' }] }]} />
+        <View style={[styles.perspLine, { left: pts[1].x, top: pts[1].y, width: Math.sqrt(Math.pow(pts[2].x-pts[1].x,2)+Math.pow(pts[2].y-pts[1].y,2)), transform: [{ rotate: Math.atan2(pts[2].y-pts[1].y, pts[2].x-pts[1].x) + 'rad' }] }]} />
+        <View style={[styles.perspLine, { left: pts[2].x, top: pts[2].y, width: Math.sqrt(Math.pow(pts[3].x-pts[2].x,2)+Math.pow(pts[3].y-pts[2].y,2)), transform: [{ rotate: Math.atan2(pts[3].y-pts[2].y, pts[3].x-pts[2].x) + 'rad' }] }]} />
+        <View style={[styles.perspLine, { left: pts[3].x, top: pts[3].y, width: Math.sqrt(Math.pow(pts[0].x-pts[3].x,2)+Math.pow(pts[0].y-pts[3].y,2)), transform: [{ rotate: Math.atan2(pts[0].y-pts[3].y, pts[0].x-pts[3].x) + 'rad' }] }]} />
+        {pts.map((p, i) => (
+          <View key={i} style={[styles.cornerHandle, { left: p.x - 14, top: p.y - 14 }]}
+            {...panResponders[`c${i}`].panHandlers} />
+        ))}
+      </>
+    );
+  };
+
   return (
     <View style={styles.container}>
+      {processorComponent}
+      <View style={styles.modeBar}>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'crop' && styles.modeBtnActive]} onPress={() => setMode('crop')}>
+          <Text style={[styles.modeBtnText, mode === 'crop' && styles.modeBtnTextActive]}>Découpage</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'perspective' && styles.modeBtnActive]} onPress={() => setMode('perspective')}>
+          <Text style={[styles.modeBtnText, mode === 'perspective' && styles.modeBtnTextActive]}>Perspective</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.imageArea}>
         <Image source={{ uri: imageUri }} style={[styles.image, { width: IMAGE_WIDTH }]}
           resizeMode="contain" onLoad={handleImageLoad} />
-        {imageSize && renderOverlay()}
+        {imageSize && (mode === 'crop' ? renderCropOverlay() : renderPerspectiveOverlay())}
         {processing && <View style={styles.processingOverlay}>
           <ActivityIndicator size="large" color="#fff" />
         </View>}
@@ -179,9 +278,16 @@ export default function EditScreen({ route, navigation }) {
 
       <View style={styles.tools}>
         <ToolBtn icon="↻" label="Rotation" onPress={handleRotate} />
-        <ToolBtn icon="⊞" label="Recadrer" onPress={handleApplyCrop} />
+        {mode === 'crop' ? (
+          <ToolBtn icon="⊞" label="Recadrer" onPress={handleApplyCrop} />
+        ) : (
+          <ToolBtn icon="⬜" label="Corriger" onPress={handleCorrectPerspective} disabled={!perspReady} />
+        )}
         <ToolBtn icon="✦" label="Améliorer" onPress={handleEnhance} />
-        <ToolBtn icon="⟲" label="Réinitialiser" onPress={() => setCrop({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 })} />
+        <ToolBtn icon="⟲" label="Réinit." onPress={() => {
+          if (mode === 'crop') setCrop({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
+          else setCorners([{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }]);
+        }} />
       </View>
 
       <View style={styles.actions}>
@@ -196,17 +302,28 @@ export default function EditScreen({ route, navigation }) {
   );
 }
 
-function ToolBtn({ icon, label, onPress }) {
+function ToolBtn({ icon, label, onPress, disabled }) {
   return (
-    <TouchableOpacity style={styles.toolBtn} onPress={onPress}>
-      <Text style={styles.toolIcon}>{icon}</Text>
-      <Text style={styles.toolLabel}>{label}</Text>
+    <TouchableOpacity style={[styles.toolBtn, disabled && styles.toolBtnDisabled]} onPress={onPress} disabled={disabled}>
+      <Text style={[styles.toolIcon, disabled && styles.toolIconDisabled]}>{icon}</Text>
+      <Text style={[styles.toolLabel, disabled && styles.toolLabelDisabled]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111' },
+  modeBar: {
+    flexDirection: 'row', backgroundColor: '#222', paddingVertical: 6,
+    paddingHorizontal: 20, gap: 8,
+  },
+  modeBtn: {
+    flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+    backgroundColor: '#333',
+  },
+  modeBtnActive: { backgroundColor: '#1a73e8' },
+  modeBtnText: { color: '#999', fontWeight: '600', fontSize: 13 },
+  modeBtnTextActive: { color: '#fff' },
   imageArea: {
     flex: 1, margin: IMAGE_MARGIN, borderRadius: 8, overflow: 'hidden',
     position: 'relative',
@@ -229,6 +346,22 @@ const styles = StyleSheet.create({
     borderRadius: HANDLE_SIZE / 2, backgroundColor: '#fff',
     borderWidth: 2.5, borderColor: '#1a73e8', zIndex: 10,
   },
+  perspMask: {
+    position: 'absolute', backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  perspQuad: {
+    position: 'absolute', backgroundColor: 'rgba(26,115,232,0.15)',
+    borderWidth: 1, borderColor: '#1a73e8', borderStyle: 'dashed',
+  },
+  perspLine: {
+    position: 'absolute', height: 2, backgroundColor: '#1a73e8',
+    transformOrigin: 'left center', zIndex: 5,
+  },
+  cornerHandle: {
+    position: 'absolute', width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#fff', borderWidth: 3, borderColor: '#1a73e8',
+    zIndex: 20, elevation: 5,
+  },
   processingOverlay: {
     ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center', alignItems: 'center',
@@ -239,8 +372,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#333',
   },
   toolBtn: { alignItems: 'center', padding: 6, minWidth: 64 },
+  toolBtnDisabled: { opacity: 0.4 },
   toolIcon: { fontSize: 22, color: '#fff' },
+  toolIconDisabled: { color: '#666' },
   toolLabel: { fontSize: 10, color: '#aaa', marginTop: 3 },
+  toolLabelDisabled: { color: '#555' },
   actions: {
     flexDirection: 'row', justifyContent: 'space-around',
     paddingVertical: 16, paddingHorizontal: 20, backgroundColor: '#0a0a0a',
