@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import {
   StyleSheet, Text, View, Image, TouchableOpacity, Dimensions,
   PanResponder, ActivityIndicator,
@@ -22,7 +22,7 @@ export default function EditScreen({ route, navigation }) {
 
   const layoutRef = useRef({ x: 0, y: 0, w: IMAGE_WIDTH, h: IMAGE_WIDTH * 0.75 });
 
-  const handleImageLoad = useCallback((evt) => {
+  const handleImageLoad = (evt) => {
     const { width, height } = evt.nativeEvent.source;
     const aspect = width / height;
     let dispW = IMAGE_WIDTH;
@@ -38,7 +38,7 @@ export default function EditScreen({ route, navigation }) {
       h: dispH,
     };
     setImageSize({ width, height });
-  }, []);
+  };
 
   const clampCrop = (x, y, w, h) => ({
     x: Math.max(0, Math.min(1 - w, x)),
@@ -82,13 +82,13 @@ export default function EditScreen({ route, navigation }) {
     },
   });
 
-  const pH = {
-    tl: createPanResponder('tl').panHandlers,
-    tr: createPanResponder('tr').panHandlers,
-    bl: createPanResponder('bl').panHandlers,
-    br: createPanResponder('br').panHandlers,
-    move: createPanResponder('move').panHandlers,
-  };
+  const panResponders = useMemo(() => ({
+    tl: createPanResponder('tl'),
+    tr: createPanResponder('tr'),
+    bl: createPanResponder('bl'),
+    br: createPanResponder('br'),
+    move: createPanResponder('move'),
+  }), []);
 
   const handleRotate = async () => {
     setProcessing(true);
@@ -157,11 +157,11 @@ export default function EditScreen({ route, navigation }) {
           </View>
         </View>
 
-        <View style={[styles.moveArea, { left, top, width: w, height: h }]} {...pH.move} />
-        <View style={[styles.handle, { left: left - HANDLE_SIZE/2, top: top - HANDLE_SIZE/2 }]} {...pH.tl} />
-        <View style={[styles.handle, { left: left + w - HANDLE_SIZE/2, top: top - HANDLE_SIZE/2 }]} {...pH.tr} />
-        <View style={[styles.handle, { left: left - HANDLE_SIZE/2, top: top + h - HANDLE_SIZE/2 }]} {...pH.bl} />
-        <View style={[styles.handle, { left: left + w - HANDLE_SIZE/2, top: top + h - HANDLE_SIZE/2 }]} {...pH.br} />
+        <View style={[styles.moveArea, { left, top, width: w, height: h }]} {...panResponders.move.panHandlers} />
+        <View style={[styles.handle, { left: left - HANDLE_SIZE/2, top: top - HANDLE_SIZE/2 }]} {...panResponders.tl.panHandlers} />
+        <View style={[styles.handle, { left: left + w - HANDLE_SIZE/2, top: top - HANDLE_SIZE/2 }]} {...panResponders.tr.panHandlers} />
+        <View style={[styles.handle, { left: left - HANDLE_SIZE/2, top: top + h - HANDLE_SIZE/2 }]} {...panResponders.bl.panHandlers} />
+        <View style={[styles.handle, { left: left + w - HANDLE_SIZE/2, top: top + h - HANDLE_SIZE/2 }]} {...panResponders.br.panHandlers} />
       </>
     );
   };

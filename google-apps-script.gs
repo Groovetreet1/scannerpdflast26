@@ -23,7 +23,16 @@ function doGet() {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
-    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
+    var sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
+
+    if (!sheet) {
+      var sheets = SpreadsheetApp.openById(SHEET_ID).getSheets();
+      if (sheets.length > 0) {
+        sheet = sheets[0];
+      } else {
+        throw new Error("Aucune feuille trouvee dans le Sheet");
+      }
+    }
 
     if (sheet.getLastRow() === 0) {
       sheet.appendRow([

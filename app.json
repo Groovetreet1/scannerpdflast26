@@ -37,7 +37,11 @@
       "expo-camera",
       "expo-sharing"
     ],
-
-    "owner": "abdelabidal"
+    "owner": "abdelabidal",
+    "extra": {
+      "eas": {
+        "projectId": "8f6fc084-487a-4967-9acb-9befac3dce64"
+      }
+    }
   }
 }
