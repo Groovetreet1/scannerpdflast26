@@ -62,7 +62,7 @@ export async function generatePDF(formData, imageUri) {
 export async function savePDF(uri) {
   const fileName = `document_${Date.now()}.pdf`;
   const dest = FileSystem.documentDirectory + fileName;
-  await FileSystem.moveAsync({ from: uri, to: dest });
+  await FileSystem.move({ from: uri, to: dest });
   return dest;
 }
 

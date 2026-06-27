@@ -18,7 +18,7 @@ export default function PreviewScreen({ route, navigation }) {
       const uri = await generatePDF(formData, photoUri);
       const fileName = `document_${Date.now()}.pdf`;
       const dest = FileSystem.documentDirectory + fileName;
-      await FileSystem.moveAsync({ from: uri, to: dest });
+      await FileSystem.move({ from: uri, to: dest });
       setPdfUri(dest);
       Alert.alert('Succès', `PDF généré : ${fileName}`);
     } catch (e) {
@@ -65,13 +65,22 @@ export default function PreviewScreen({ route, navigation }) {
         timestamp: new Date().toISOString(),
       };
 
+      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, { method: 'GET' });
+
       const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(data),
       });
 
-      const result = await response.json();
+      const text = await response.text();
+      var result;
+      try {
+        result = JSON.parse(text);
+      } catch (parseErr) {
+        Alert.alert('Erreur', 'Réponse du serveur: ' + text.substring(0, 300));
+        return;
+      }
       if (result.status === 'success') {
         var msg = 'Données envoyées au Sheet !';
         if (result.pdfUrl) {
@@ -82,7 +91,7 @@ export default function PreviewScreen({ route, navigation }) {
         Alert.alert('Erreur', result.message || 'Réponse inconnue');
       }
     } catch (e) {
-      Alert.alert('Erreur', "Upload: " + (e.message || e.toString()) + "\n\nVérifie ton URL dans config.js");
+      Alert.alert('Erreur', "Upload: " + (e.message || e.toString()));
     } finally {
       setSaving(false);
     }

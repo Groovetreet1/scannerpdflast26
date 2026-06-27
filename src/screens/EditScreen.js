@@ -6,6 +6,7 @@ import {
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 import { usePerspectiveProcessor } from '../utils/perspectiveProcessor';
+import { useAutoDetect } from '../utils/autoDetect';
 
 const SCREEN = Dimensions.get('window');
 const IMAGE_MARGIN = 10;
@@ -33,6 +34,7 @@ export default function EditScreen({ route, navigation }) {
   const cornerStartRef = useRef(null);
   const dragCornerRef = useRef(-1);
   const { ready: perspReady, correctPerspective, processorComponent } = usePerspectiveProcessor();
+  const { ready: detectReady, detectCorners, detectorComponent } = useAutoDetect();
 
   const handleImageLoad = (evt) => {
     const { width, height } = evt.nativeEvent.source;
@@ -186,6 +188,20 @@ export default function EditScreen({ route, navigation }) {
     } finally { setProcessing(false); }
   };
 
+  const handleAutoDetect = async () => {
+    setProcessing(true);
+    try {
+      const result = await detectCorners(imageUri);
+      if (result) {
+        setCorners(result);
+      } else {
+        Alert.alert('Info', "Impossible de détecter les bords automatiquement. Ajuste les coins manuellement.");
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleConfirm = () => {
     navigation.replace('Form', { photoUri: imageUri });
   };
@@ -258,6 +274,7 @@ export default function EditScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
       {processorComponent}
+      {detectorComponent}
       <View style={styles.modeBar}>
         <TouchableOpacity style={[styles.modeBtn, mode === 'crop' && styles.modeBtnActive]} onPress={() => setMode('crop')}>
           <Text style={[styles.modeBtnText, mode === 'crop' && styles.modeBtnTextActive]}>Découpage</Text>
@@ -281,7 +298,10 @@ export default function EditScreen({ route, navigation }) {
         {mode === 'crop' ? (
           <ToolBtn icon="⊞" label="Recadrer" onPress={handleApplyCrop} />
         ) : (
-          <ToolBtn icon="⬜" label="Corriger" onPress={handleCorrectPerspective} disabled={!perspReady} />
+          <>
+            <ToolBtn icon="⬜" label="Corriger" onPress={handleCorrectPerspective} disabled={!perspReady} />
+            <ToolBtn icon="◎" label="Auto" onPress={handleAutoDetect} disabled={!detectReady} />
+          </>
         )}
         <ToolBtn icon="✦" label="Améliorer" onPress={handleEnhance} />
         <ToolBtn icon="⟲" label="Réinit." onPress={() => {
