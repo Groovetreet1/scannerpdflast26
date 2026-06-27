@@ -18,7 +18,7 @@ export default function PreviewScreen({ route, navigation }) {
       const uri = await generatePDF(formData, photoUri);
       const fileName = `document_${Date.now()}.pdf`;
       const dest = FileSystem.documentDirectory + fileName;
-      await FileSystem.move({ from: uri, to: dest });
+      await FileSystem.moveAsync({ from: uri, to: dest });
       setPdfUri(dest);
       Alert.alert('Succès', `PDF généré : ${fileName}`);
     } catch (e) {
@@ -65,20 +65,31 @@ export default function PreviewScreen({ route, navigation }) {
         timestamp: new Date().toISOString(),
       };
 
-      await fetch(GOOGLE_SHEETS_WEBHOOK_URL, { method: 'GET' });
+      const sendPOST = async () => {
+        const r = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(data),
+        });
+        return await r.text();
+      };
 
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(data),
-      });
+      const sendGET = async () => {
+        var params = Object.keys(data).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(data[k])).join('&');
+        const r = await fetch(GOOGLE_SHEETS_WEBHOOK_URL + '?' + params, { method: 'GET' });
+        return await r.text();
+      };
 
-      const text = await response.text();
+      var text = await sendPOST();
+      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html') || text.startsWith('<')) {
+        text = await sendGET();
+      }
+
       var result;
       try {
         result = JSON.parse(text);
       } catch (parseErr) {
-        Alert.alert('Erreur', 'Réponse du serveur: ' + text.substring(0, 300));
+        Alert.alert('Erreur', 'Réponse: ' + text.substring(0, 200));
         return;
       }
       if (result.status === 'success') {
