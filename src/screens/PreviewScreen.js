@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet, Text, View, ScrollView, TouchableOpacity,
   Image, ActivityIndicator, Alert,
@@ -11,20 +11,30 @@ export default function PreviewScreen({ route, navigation }) {
   const { photoUri, formData } = route.params;
   const [saving, setSaving] = useState(false);
   const [pdfUri, setPdfUri] = useState(null);
+  const [imageValid, setImageValid] = useState(true);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    return () => { mounted.current = false; };
+  }, []);
 
   const handleGeneratePDF = async () => {
     setSaving(true);
     try {
       const uri = await generatePDF(formData, photoUri);
+      if (!mounted.current) return;
       const fileName = `document_${Date.now()}.pdf`;
       const dest = FileSystem.documentDirectory + fileName;
       await FileSystem.moveAsync({ from: uri, to: dest });
+      if (!mounted.current) return;
       setPdfUri(dest);
       Alert.alert('Succès', `PDF généré : ${fileName}`);
     } catch (e) {
-      Alert.alert('Erreur', "PDF: " + (e.message || e.toString()));
+      if (mounted.current) {
+        Alert.alert('Erreur', e.message || 'Échec de génération du PDF');
+      }
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
@@ -34,17 +44,12 @@ export default function PreviewScreen({ route, navigation }) {
 
   const handleSaveToSheets = async () => {
     if (!GOOGLE_SHEETS_WEBHOOK_URL) {
-      Alert.alert(
-        'Configuration requise',
-        "Ajoute l'URL du Google Apps Script dans src/config.js"
-      );
+      Alert.alert('Configuration requise', "Ajoute l'URL du Google Apps Script dans src/config.js");
       return;
     }
-
     setSaving(true);
     try {
-      var pdfBase64 = "";
-      var pdfName = "";
+      let pdfBase64 = "", pdfName = "";
       if (pdfUri) {
         pdfBase64 = await FileSystem.readAsStringAsync(pdfUri, {
           encoding: FileSystem.EncodingType.Base64,
@@ -60,68 +65,52 @@ export default function PreviewScreen({ route, navigation }) {
         montant: formData.montant,
         documentScanne: 'Oui',
         accuse: formData.accuse || '-',
-        pdfBase64: pdfBase64,
-        pdfName: pdfName,
+        pdfBase64, pdfName,
         timestamp: new Date().toISOString(),
       };
 
-      const sendPOST = async () => {
-        const r = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(data),
-        });
-        return await r.text();
-      };
+      const res = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(data),
+      });
+      let text = await res.text();
 
-      const sendGET = async () => {
-        var params = Object.keys(data).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(data[k])).join('&');
-        const r = await fetch(GOOGLE_SHEETS_WEBHOOK_URL + '?' + params, { method: 'GET' });
-        return await r.text();
-      };
-
-      var text = await sendPOST();
-      if (text.startsWith('<!DOCTYPE') || text.startsWith('<html') || text.startsWith('<')) {
-        text = await sendGET();
+      if (text.startsWith('<!')) {
+        const params = Object.keys(data).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(data[k])).join('&');
+        const res2 = await fetch(GOOGLE_SHEETS_WEBHOOK_URL + '?' + params, { method: 'GET' });
+        text = await res2.text();
       }
 
-      var result;
-      try {
-        result = JSON.parse(text);
-      } catch (parseErr) {
-        Alert.alert('Erreur', 'Réponse: ' + text.substring(0, 200));
-        return;
-      }
+      let result;
+      try { result = JSON.parse(text); } catch { Alert.alert('Erreur', 'Réponse: ' + text.substring(0, 200)); return; }
+
       if (result.status === 'success') {
-        var msg = 'Données envoyées au Sheet !';
-        if (result.pdfUrl) {
-          msg += '\nPDF uploadé : ' + result.pdfUrl;
-        }
-        Alert.alert('Succès', msg);
+        Alert.alert('Succès', 'Données envoyées au Sheet !' + (result.pdfUrl ? '\nPDF: ' + result.pdfUrl : ''));
       } else {
         Alert.alert('Erreur', result.message || 'Réponse inconnue');
       }
     } catch (e) {
-      Alert.alert('Erreur', "Upload: " + (e.message || e.toString()));
+      Alert.alert('Erreur', e.message || 'Échec de communication');
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
   const handleSaveAll = async () => {
-    if (!pdfUri) {
-      await handleGeneratePDF();
-    }
-    if (pdfUri) {
-      await handleSaveToSheets();
-    }
+    if (!pdfUri) await handleGeneratePDF();
+    if (pdfUri) await handleSaveToSheets();
   };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Document scanné</Text>
-        <Image source={{ uri: photoUri }} style={styles.photo} />
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={styles.photo}
+            onError={() => setImageValid(false)} />
+        ) : null}
+        {!imageValid ? <Text style={styles.errorText}>Image indisponible</Text> : null}
       </View>
 
       <View style={styles.card}>
@@ -130,52 +119,28 @@ export default function PreviewScreen({ route, navigation }) {
         <InfoRow label="Type" value={formData.type} />
         <InfoRow label="Désignation" value={formData.designation} />
         <InfoRow label="Destination" value={formData.destination} />
-        <InfoRow label="Montant" value={`${formData.montant} MAD`} />
+        <InfoRow label="Montant" value={formData.montant ? formData.montant + ' MAD' : '-'} />
         <InfoRow label="Document scanné" value="Oui" />
         <InfoRow label="Accusé" value={formData.accuse || '-'} />
       </View>
 
       <View style={styles.actions}>
         {!pdfUri ? (
-          <TouchableOpacity
-            style={[styles.button, styles.pdfButton]}
-            onPress={handleGeneratePDF}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Générer le PDF</Text>
-            )}
+          <TouchableOpacity style={[styles.btn, styles.pdfBtn]} onPress={handleGeneratePDF} disabled={saving}>
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Générer le PDF</Text>}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={[styles.button, styles.shareButton]} onPress={handleShare}>
-            <Text style={styles.buttonText}>Partager le PDF</Text>
+          <TouchableOpacity style={[styles.btn, styles.shareBtn]} onPress={handleShare}>
+            <Text style={styles.btnText}>Partager le PDF</Text>
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[styles.button, styles.sheetsButton]}
-          onPress={handleSaveToSheets}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Upload PDF + Sheets</Text>
-          )}
+        <TouchableOpacity style={[styles.btn, styles.sheetsBtn]} onPress={handleSaveToSheets} disabled={saving}>
+          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Upload PDF + Sheets</Text>}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, styles.saveAllButton]}
-          onPress={handleSaveAll}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Tout en 1 clic</Text>
-          )}
+        <TouchableOpacity style={[styles.btn, styles.allBtn]} onPress={handleSaveAll} disabled={saving}>
+          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Tout en 1 clic</Text>}
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -196,24 +161,15 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#fff', margin: 12, padding: 16, borderRadius: 12, elevation: 2 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10, color: '#333' },
   photo: { width: '100%', height: 200, resizeMode: 'contain', borderRadius: 8 },
-  infoRow: {
-    flexDirection: 'row',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
+  errorText: { textAlign: 'center', color: '#999', padding: 20 },
+  infoRow: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   infoLabel: { width: 120, fontWeight: '600', color: '#555', fontSize: 14 },
   infoValue: { flex: 1, color: '#333', fontSize: 14 },
-  actions: { padding: 12, gap: 10, marginBottom: 40 },
-  button: {
-    padding: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  pdfButton: { backgroundColor: '#e67e22' },
-  shareButton: { backgroundColor: '#3498db' },
-  sheetsButton: { backgroundColor: '#0f9d58' },
-  saveAllButton: { backgroundColor: '#1a73e8' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  actions: { padding: 12, marginBottom: 40 },
+  btn: { padding: 16, borderRadius: 10, alignItems: 'center', marginBottom: 8 },
+  pdfBtn: { backgroundColor: '#e67e22' },
+  shareBtn: { backgroundColor: '#3498db' },
+  sheetsBtn: { backgroundColor: '#0f9d58' },
+  allBtn: { backgroundColor: '#1a73e8' },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
