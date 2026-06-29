@@ -1,23 +1,24 @@
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 export async function generatePDF(formData, imageUri) {
   const dateStr = formData.date || new Date().toLocaleDateString('fr-FR');
 
   let imgTag = '';
   try {
-    const contentUri = await FileSystem.getContentUriAsync(imageUri);
-    imgTag = `<img src="${contentUri}" />`;
-  } catch (e1) {
-    try {
-      const b64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      imgTag = `<img src="data:image/jpeg;base64,${b64}" />`;
-    } catch (e2) {
-      imgTag = '<p style="color:#999">(Image non disponible)</p>';
-    }
+    const resized = await ImageManipulator.manipulateAsync(
+      imageUri,
+      [{ resize: { width: 600 } }],
+      { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    const b64 = await FileSystem.readAsStringAsync(resized.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    imgTag = `<img src="data:image/jpeg;base64,${b64}" />`;
+  } catch (e) {
+    imgTag = '<p style="color:#999">(Image non disponible)</p>';
   }
 
   const html = `
@@ -57,13 +58,6 @@ export async function generatePDF(formData, imageUri) {
   `;
   const { uri } = await Print.printToFileAsync({ html });
   return uri;
-}
-
-export async function savePDF(uri) {
-  const fileName = `document_${Date.now()}.pdf`;
-  const dest = FileSystem.documentDirectory + fileName;
-  await FileSystem.moveAsync({ from: uri, to: dest });
-  return dest;
 }
 
 export async function sharePDF(uri) {
